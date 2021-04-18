@@ -33,7 +33,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="AndroidInputDriver.App">
       <uap:VisualElements
-        DisplayName="AndroidInputDriver"
+        DisplayName="Android Tablet Driver"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Description="AndroidInputDriver"
