@@ -6,6 +6,8 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 using Windows.Graphics.Display;
+using Windows.Networking;
+using Windows.Networking.Connectivity;
 using Windows.Networking.Sockets;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -23,7 +25,7 @@ namespace AndroidInputDriver {
     /// An empty page that can be used on its own or navigated to within a Frame.
     /// </summary>
     public sealed partial class MainPage : Page {
-        private static string SERVER_PORT = "3939";
+        private string SERVER_PORT = "3939";
         private VirtualDevice virtualDevice;
         private uint width;
         private uint height;
@@ -32,6 +34,15 @@ namespace AndroidInputDriver {
             connectButton.AddHandler(PointerPressedEvent, new PointerEventHandler(Connect), true);
             width = DisplayInformation.GetForCurrentView().ScreenWidthInRawPixels;
             height = DisplayInformation.GetForCurrentView().ScreenHeightInRawPixels;
+            //get ip
+            foreach (HostName localHostName in NetworkInformation.GetHostNames()) {
+                if (localHostName.IPInformation != null) {
+                    if (localHostName.Type == HostNameType.Ipv4) {
+                        ipTextBox.Text = localHostName.ToString();
+                        break;
+                    }
+                }
+            }
         }
 
         private async void startServer() {
@@ -42,19 +53,17 @@ namespace AndroidInputDriver {
 
                 await streamSocketListener.BindServiceNameAsync(SERVER_PORT);
 
-                this.serverListBox.Items.Add("server is listening...");
+                connectButton.IsEnabled = false;
             } catch (Exception e) {
                 SocketErrorStatus socketErrorStatus = SocketError.GetStatus(e.GetBaseException().HResult);
-                this.serverListBox.Items.Add(socketErrorStatus.ToString() != "Unknown" ? socketErrorStatus.ToString() : e.Message);
+                failedTextBlock.Visibility = Visibility.Visible;
             }
         }
         private async void StreamSocketListener_ConnectionReceived(StreamSocketListener sender, StreamSocketListenerConnectionReceivedEventArgs args) {
-            this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => this.serverListBox.Items.Add("connection received"));
             StreamReader streamReader = new StreamReader(args.Socket.InputStream.AsStreamForRead());
             string handshake;
             handshake = await streamReader.ReadLineAsync();
             if (handshake.Equals("Android Input Device")) {
-                this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => this.serverListBox.Items.Add("handshake message received"));
                 using (Stream outputStream = args.Socket.OutputStream.AsStreamForWrite()) {
                     using (var streamWriter = new StreamWriter(outputStream)) {
                         await streamWriter.WriteLineAsync("Android Input Driver");
@@ -62,25 +71,26 @@ namespace AndroidInputDriver {
                     }
                 }
             } else {
-                sender.Dispose();
+                sender.Dispose(); 
+                await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => connectButton.IsEnabled = true);
                 return;
             }
-            await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => this.serverListBox.Items.Add("connection received"));
             for (; ; ) {
                 string request;
                 request = await streamReader.ReadLineAsync();
                 if(request == null) {
+                    await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => connectButton.IsEnabled = true);
                     sender.Dispose();
                     return;
                 }
-                this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => this.serverListBox.Items.Add(string.Format("server received the request: \"{0}\"", request)));
                 InjectInput(request);
             }
         }
         private void Connect(object sender, PointerRoutedEventArgs e) {
+            failedTextBlock.Visibility = Visibility.Collapsed;
+            SERVER_PORT = portTextBox.Text;
             startServer();
             virtualDevice = new VirtualDevice(e.GetCurrentPoint((Button) sender));
-            virtualDevice.InjectInputForPen(1000, 1000, 0, false);
         }
         private async void InjectInput(String request) {
             string[] split = request.Split(':');
@@ -104,8 +114,6 @@ namespace AndroidInputDriver {
                 pressure = Double.Parse(split2[2]);
                 virtualDevice.InjectInputForPen(x, y, pressure, contact);
             }else if (split[0].Equals("MACRO")) {
-
-                await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => this.serverListBox.Items.Add(split[1]));
                 if (!String.IsNullOrWhiteSpace(split[1])) {
                     virtualDevice.InjectInputForKeyboard(split[1].Split(","));
                 }
